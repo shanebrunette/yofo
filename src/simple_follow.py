@@ -232,9 +232,13 @@ class Follower:
 
 		img = human.img
 		body_twist = Twist()
-		head_twist = JointTrajectory()
+		traj = JointTrajectory()
+		traj.joint_names = ["head_pan_joint", "head_tilt_joint"]
 		points = JointTrajectoryPoint()
-		head_twist.joint_names = ["head_pan_joint", "head_joint_tilt"]
+		p = JointTrajectoryPoint()
+		p.positions = [0, 0]
+		p.velocities = [0, 0]
+		
 
 		# this needs to be tested - it should in theory calculate the angle between the body and head and tell the body to rotate that far
 		#body_angular = 4 * math.atan2(trans[1], trans[0])
@@ -259,11 +263,11 @@ class Follower:
 			body_twist.angular.z = body_angle/360
 
 	
-		points.time_from_start = rospy.Time(2)
+		
 		
 		if human.depth > 1.8 and math.fabs(body_twist.angular.z) < 0.2 :
 			threshold = 30
-			body_twist.linear.x = min(0.5, 0.15 * human.depth) # TODO
+			# body_twist.linear.x = min(0.5, 0.15 * human.depth) # TODO
 		else:
 			threshold = 60
 		
@@ -279,18 +283,20 @@ class Follower:
 			print(angle_right)
 			print(rotation_amount)
 			#this needs to be put into Joint tra
-			points.positions = [-rotation_amount, 0] #https://docs.hsr.io/manual_en/development/ros_controller_head.html
+			p.positions = [-0.5, 0.0] #https://docs.hsr.io/manual_en/development/ros_controller_head.html
 			#twist.linear.x = 0.2
 		elif human.x < middle - threshold:
 			print('@@@@@@@right')
 			angle_left = middle - threshold - human.x
 			rotation_amount = max_rotation * angle_left/full_angle
-			points.positions = [rotation_amount, 0]
+			p.positions = [0.5, 0.0]
 		
-		points.velocities = [0,0]
-		head_twist.points = [points]
 
-		self.pub_head_move.publish(head_twist)
+
+		p.time_from_start = rospy.Time(3)
+		traj.points = [p]
+
+		self.pub_head_move.publish(traj)
 		# self.pub_body_move.publish(body_twist)
 
 
