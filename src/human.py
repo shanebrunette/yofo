@@ -3,6 +3,9 @@ import uuid
 import cv2
 import numpy as np
 
+
+DETECTOR = cv2.CascadeClassifier("haarcascade_frontalface_default.xml");
+
 class Human:
 	def __init__(self, yolo_data, rgb_image, depth_image):
 		self.id = uuid.uuid4()
@@ -11,10 +14,12 @@ class Human:
 		self.h = int(yolo_data.height)
 		self.w = int(yolo_data.width)
 		self.depth = self.get_depth(depth_image)
-		self.img = self.get_img(rgb_image)
-		self.hist = self.get_color_histogram(self.img)
+		self.shirt = self.get_shirt(rgb_image)
+		self.face = self.get_head(rgb_image)
+		self.hist = self.get_color_histogram(self.shirt)
 		self.pos_probs = None
 		self.img_probs = None
+		self.face_target = 0
 
 
 	def get_depth(self, depth_image):
@@ -28,16 +33,47 @@ class Human:
 		return depth
 
 
-	def get_img(self, rgb_image):
+	def get_head(self, rgb_image):
+		"""
+		x, y are center of image
+		h, w refer to bounding box
+		"""
+		x, y, h, w = self.x, self.y, self.h, self.w
+		gray_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
+		crop_image = gray_image[int(y-h/2):int(y), int(x-w/3):int(x+w/3)]
+		print(crop_image.shape)
+		if not crop_image.shape[0]:
+			return []
+		cv2.imshow('img', crop_image)
+		if cv2.waitKey(1) & 0xFF == ord('q'):
+		        cv2.destroyAllWindows()
+		return crop_image
+
+	def check_face(self, target):
+		faces = DETECTOR.detectMultiScale(self.face, 1.3,5)
+		if not len(faces):
+			self.face_match = 0
+			return self
+		(x,y,w,h) = faces[0]
+		match = target.predict(self.face[y:y+h,x:x+w])
+		print('^^^^^^^^^^^^^^^^', match)
+		if match == 1:
+			self.face_match = 1
+		else:
+			self.face_match = -1 # negative if found face but wasnt match
+		return self
+
+
+	def get_shirt(self, rgb_image):
 		"""
 		x, y are center of image
 		h, w refer to bounding box
 		"""
 		x, y, h, w = self.x, self.y, self.h, self.w
 		crop_image = rgb_image[int(y-h/6):int(y), int(x-w/4):int(x+w/4)]
-		cv2.imshow('img', crop_image)
-		if cv2.waitKey(1) & 0xFF == ord('q'):
-		        cv2.destroyAllWindows()
+		# cv2.imshow('img', crop_image)
+		# if cv2.waitKey(1) & 0xFF == ord('q'):
+		#         cv2.destroyAllWindows()
 		return crop_image
 
 
@@ -116,7 +152,7 @@ class Human:
 		correlation_threshold=0.1):
 		
 		def compare_hist_to_targets(new_hist, target_history, method):
-			print('length target history', len(target_history))
+
 			total = 0
 			for previous_human in target_history:
 				old_hist = previous_human.hist
@@ -124,16 +160,13 @@ class Human:
 			if len(target_history):
 				total /= len(target_history)
 			else:
-				print('target history zero?', len(target_history))
 				total = 1
-			print('total', total)
 			return total
 
 		self.img_probs = compare_hist_to_targets(self.hist, target_history, method)
 		if self.img_probs < correlation_threshold:
 			print('correlation low', self.img_probs)
 			# self.img_probs = 0
-		print('self img probs', self.img_probs)
 		return self
 
 
