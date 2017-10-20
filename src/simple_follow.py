@@ -350,11 +350,11 @@ class Follower:
 			print(e)
 
 	def found_human(self):
-		self.pub_voice.publish(False, False, 1, 'i see you')
-		self.pub_voice.publish(False, False, 1, 'you must die')
+		self.pub_voice.publish(False, False, 1, 'i see you, now following')
+
 
 	def following_human(self):
-		self.pub_voice.publish(False, False, 1, 'kill!')
+		self.pub_voice.publish(False, False, 1, 'bleep!')
 
 	def get_human(self):
 		if self.human_target:
