@@ -41,7 +41,7 @@ class Human:
 		x, y, h, w = self.x, self.y, self.h, self.w
 		gray_image = cv2.cvtColor(rgb_image, cv2.COLOR_BGR2GRAY)
 		crop_image = gray_image[int(y-h/2):int(y), int(x-w/3):int(x+w/3)]
-		print(crop_image.shape)
+		# print(crop_image.shape)
 		if not crop_image.shape[0]:
 			return []
 		cv2.imshow('img', crop_image)
@@ -56,11 +56,11 @@ class Human:
 			return self
 		(x,y,w,h) = faces[0]
 		match = target.predict(self.face[y:y+h,x:x+w])
-		print('^^^^^^^^^^^^^^^^', match)
+		# print('^^^^^^^^^^^^^^^^', match)
 		if match == 1:
 			self.face_match = 1
 		else:
-			self.face_match = -1 # negative if found face but wasnt match
+			self.face_match = 0 # negative if found face but wasnt match
 		return self
 
 
