@@ -12,9 +12,6 @@ from geometry_msgs.msg import Twist
 from trajectory_msgs.msg import JointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
 from control_msgs.msg import JointTrajectoryControllerState
-from myvis.msg import Object
-from myvis.msg import Objects
-from myvis.msg import Detection
 from myvis.msg import Detections
 from tmc_msgs.msg import Voice
 from cv_bridge import CvBridge, CvBridgeError
@@ -36,8 +33,8 @@ BODY_TF_TOPIC = "/base_link"
 RECOGNIZER = cv2.createLBPHFaceRecognizer(threshold=5.0)
 DETECTOR = cv2.CascadeClassifier("haarcascade_frontalface_default.xml");
 HEAD_TURN = 0.3
-FACE_DETECTION = False
-ADV_HEAD_TURN = True
+FACE_DETECTION = int(sys.argv[1])
+ADV_HEAD_TURN = int(sys.argv[2])
 # TO DO
 # need to ensure that the camera is pointing straight ahead relative to the robot - have a look at the transforms for this
 #
@@ -46,7 +43,6 @@ ADV_HEAD_TURN = True
 class Follower:
 
 	def __init__(self):
-		# rospy.Subscriber("Objects", Objects, self.callback_objects)
 		self.bridge = CvBridge()
 		
 		self.rec_depth = False
@@ -87,25 +83,22 @@ class Follower:
 		returns self.human_target with Human or None
 		"""
 		time.sleep(1)
+		middle = 320 # middle of frame of view
 		min_diff = 400 #the actual max value is 360 
 		# print([human.depth for human in humans])
 		potential_humans = [human for human in humans if human.depth < depth_threshold]
 		if not potential_humans:
 			self.human_target = None
 		else:
-			distance_center = [abs(320 - human.x) for human in potential_humans]
+			distance_center = [abs(middle - human.x) for human in potential_humans]
 			min_index = distance_center.index(min(distance_center))
 			human_target = potential_humans[min_index]
 			if FACE_DETECTION:
 				target_face = self.train_face(human_target)
 				if not target_face:
 					return False # TODO show your face
-				else:
-					self.human_target = human_target
-					self.found_human()
-			else:
-				self.human_target = human_target
-				self.found_human()
+			self.human_target = human_target
+			self.found_human()
 		return self.human_target
 
 
@@ -231,23 +224,24 @@ class Follower:
 		"""
 		middle = 320
 		max_rotation = 0.7 #this is for turning velocity
+		max_forward = 0.8
+		human_depth_weight = 0.15
 		twist = Twist()
 
 		if human.depth > 1.5:
 			threshold = 30
-			twist.linear.x = min(0.8, 0.15 * human.depth) #  TODO test if this works ok
+			twist.linear.x = min(max_forward, human_depth_weight * human.depth) #  TODO test if this works ok
 		else:
 			threshold = 60
-		full_angle = 360 - threshold #the full width of possible angles
+		
 		if human.x > middle + threshold:
 			# rotate left to correct
-			angle_right = human.x - middle - threshold
-			rotation_amount = max_rotation * angle_right/full_angle
+			displacement_right = human.x - middle - threshold
+			rotation_amount = max_rotation * displacement_right/middle
 			twist.angular.z = -rotation_amount # http://wiki.ros.org/turtlesim/Tutorials/Rotating%20Left%20and%20Right
-			#twist.linear.x = 0.2
 		elif human.x < middle - threshold:
-			angle_left = middle - threshold - human.x
-			rotation_amount = max_rotation * angle_left/full_angle
+			displacement_left = middle - threshold - human.x
+			rotation_amount = max_rotation * displacement_left/middle
 			twist.angular.z = rotation_amount
 
 		self.pub_body_move.publish(twist)
@@ -257,22 +251,13 @@ class Follower:
 		param human is Human object that is our_human target
 		publishes Twist message to turn towards human
 		"""
-
-		try:
-			(trans,rot) = self.tf_listener.lookupTransform(HEAD_CAMERA_TF_TOPIC, BODY_TF_TOPIC, rospy.Time(0))
-  		except Exception as e:
-			print("error when getting transform. No movement made")
-			print(e)
-			return
-		# print('ROTATION = ', rot)
-
-
 		middle = 320
 		maximum_threshold = 640 # number of pixels in image
 		body_threshold = 0.5 # this needs to be tested - how quickly it moves?
 		max_rotation = 0.5 #0.8 #this is for body turning velocity # TODO
 		body_rotation = 0
 		target_pos = 0
+		extreme_threshold = 100
 
 		body_twist = Twist()
 		traj = JointTrajectory()
@@ -280,21 +265,14 @@ class Follower:
 		p = JointTrajectoryPoint()
 		p.positions = [0, 0]
 		p.velocities = [0, 0]
-		body_twist.angular.z = 0		
+		body_twist.angular.z = 0	
+		threshold = 30	
 		
 		if abs(self.head_position) <= (HEAD_TURN * 1.5):
 			if human.depth > 2:
-			# 	threshold = 30
 				body_twist.linear.x = min(0.8, 0.5 * human.depth) # TODO
-			# if human.depth > 3.5:
-			# 	body_twist.linear.x = 1
-		threshold = 30
-		if human.depth < 2.5:
-			threshold = 60
-
-
-				
-		full_angle = middle - threshold#the full width of possible angles
+			else:
+				threshold = 60
 
 		if human.x < middle:
 			self.turn_direction = 'pos'
@@ -303,16 +281,17 @@ class Follower:
 
 
 		if human.x > middle + threshold or self.head_position >= HEAD_TURN:
-			# rotate left to correct
+			# rotate right from robot perspective
 			angle_right = human.x - middle - threshold
-			body_rotation = -(max_rotation * angle_right/full_angle)
+			body_rotation = -(max_rotation * angle_right/middle)
 
 		elif human.x < middle - threshold or self.head_position <= -HEAD_TURN:
+			# rotate left
 			angle_left = middle - threshold - human.x
-			body_rotation = max_rotation * angle_left/full_angle
+			body_rotation = max_rotation * angle_left/middle
 
 
-		extreme_threshold = 100
+		
 		if human.x < extreme_threshold:
 			body_rotation * 1.5
 			self.extreme = 'pos'
@@ -368,31 +347,24 @@ class Follower:
 
 
 	def scan_room(self):
+		max_head_rotation = 1.2
+
 		self.counter += 1
 		if self.counter > 15:
 			self.get_human()
 			self.counter = 0
 
 		if ADV_HEAD_TURN:
-			if self.extreme == 'neg' and abs(self.head_position) < 1.2:
-				self.head_position -= HEAD_TURN
-			elif self.extreme == 'pos' and abs(self.head_position) < 1.2:
-				self.head_position += HEAD_TURN
-			elif self.human_target and (self.counter > 5 or self.extreme): # make sure it has been initialized
-				
-				self.extreme = False # start general scan
+			if abs(self.head_position) < max_head_rotation and (self.extreme or (self.human_target and self.counter > 5)):
 				if self.turn_direction == 'pos':
 					self.head_position += HEAD_TURN
-				elif self.turn_direction == 'neg':
+				else:
 					self.head_position -= HEAD_TURN
-
-				if self.head_position > 1.4:
-					self.turn_direction = 'neg'
-				elif self.head_position < -1.4:
-					self.turn_direction = 'pos'
-				print('SCANNING', self.turn_direction, self.head_position)
 			else:
-				self.head_position /= 2
+				if self.head_position > max_head_rotation:
+					self.turn_direction = 'neg'
+				elif self.head_position < -max_head_rotation:
+					self.turn_direction = 'pos'
 			self.twist_head(self.head_position)
 		return
 		
@@ -401,11 +373,6 @@ class Follower:
 		traj = JointTrajectory()
 		traj.joint_names = ["head_pan_joint", "head_tilt_joint"]
 		p = JointTrajectoryPoint()
-		p.positions = [0, 0]
-		p.velocities = [0, 0]
-		#how quickly it should move
-		
-		
 		p.positions = [pos,0]
 		p.velocities = [0,0]
 		p.time_from_start = rospy.Time(3)
@@ -423,10 +390,7 @@ class Follower:
 
 	
 	def callback_main(self, data): 
-		print('HEAD POS =', self.head_position)
-		print('**', self.counter)
 		if not self.rec_depth or not self.rec_image:
-			print('not')
 			return
 
 		if self.counter == -1:
@@ -439,35 +403,29 @@ class Follower:
 		objects = data.detections
 		humans = self.extract_humans(objects, image, depth)
 		if not humans:
-			print('zero humans detected')
 			self.scan_room()
+			return
 
 		if not self.human_target:
 			if self.counter < 5:
 				self.counter += 1
 				return
 			else:
-				print('init target')
 				our_human = self.init_target(humans)
 				self.counter = 0
 		else:
-			print('finding human')
 			our_human = self.find_human_target(humans)
 
 		if our_human:
 			self.counter = 0
 			if len(self.prev_targets) <= history_threshold:
-				print('storing history of human')
 				self.prev_targets.append(our_human)
 			self.human_target = our_human # update out human
-			print('our human z, x', our_human.depth, our_human.x)
-			# self.following_human()
 			if ADV_HEAD_TURN:
 				self.adv_turn_human(our_human)
 			else:
 				self.turn_human(our_human) # TODO uncomment to move
 		else:
-			print('no human')
 			self.scan_room()
 			return
 
