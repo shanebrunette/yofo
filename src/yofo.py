@@ -113,8 +113,8 @@ class Follower:
 
 	def train_face(self, human):
 		"""
-		Looks face in human object.
-		Trains fisherfeace model declared under self.recognizer on detected human face.
+		Looks face in human object using haar detector.
+		Trains fisherface model declared under self.recognizer on detected human face.
 		Sets the face target to self.recognizer if face is detected
 		param human is human object
 		returns True if face was trained correctly
@@ -461,9 +461,10 @@ class Follower:
 	def callback_main(self, data): 
 		"""
 		main function
-		if not depth or image started it will return
+		if not depth or image received main will return
+		and wait for more data to be received
 		on initiation will call get_human()
-		if no humans found will call snan_room()
+		if no humans found will call scan_room()
 		after fifth frame will start calling init_target
 		this gives robot time to 'warm up'
 		once human target found it will call find_human_target
@@ -474,12 +475,10 @@ class Follower:
 		"""
 		if not self.rec_depth or not self.rec_image:
 			return
-
-		if self.counter == -1:
+		elif self.counter == -1:
 			self.counter += 1
 			self.get_human()
 
-		
 		image = self.bgr_image 
 		depth = self.depth_image
 		objects = data.detections
