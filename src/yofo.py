@@ -67,6 +67,7 @@ class Follower:
 		self.extreme = False
 		self.turn_direction = None
 		self.head_position = 0
+		self.history_threshold = 10
 
 		self.pub_body_move = rospy.Publisher("/hsrb/command_velocity", Twist, queue_size=10)
 		self.pub_head_move = rospy.Publisher("hsrb/head_trajectory_controller/command", JointTrajectory, queue_size=10)
@@ -79,17 +80,24 @@ class Follower:
 
 	def init_target(self, humans, depth_threshold=3):
 		"""
+		Used to initialize HSR with human target
+		Checks for potential humans by checking if the human is under depth threshold
+		Calculates distance from center for each human
+		Chooses the human that is most centred
+		Also initiates face training if face_detection_setting is set to true
+
 		init_target(self, humans, depth_threshold=2.5)
 		param humans is list of Human objects
 		param depth_threshold used for max distance from robot
 		updates self.human_target with most center human within depth_threshold
-		returns self.human_target with Human or None
+		returns self.human_target with Human or False
 		"""
 		time.sleep(1)
 		middle = 320 # middle of frame of view
 		potential_humans = [human for human in humans if human.depth < depth_threshold]
 		if not potential_humans:
 			self.human_target = None
+			return False
 		else:
 			distance_center = [abs(middle - human.x) for human in potential_humans]
 			min_index = distance_center.index(min(distance_center))
@@ -104,6 +112,14 @@ class Follower:
 
 
 	def train_face(self, human):
+		"""
+		Looks face in human object.
+		Trains fisherfeace model declared under self.recognizer on detected human face.
+		Sets the face target to self.recognizer if face is detected
+		param human is human object
+		returns True if face was trained correctly
+		otherwise returns False
+		"""
 		face = human.face
 		if not face.any():
 			return False
@@ -131,6 +147,12 @@ class Follower:
 		"""
 
 		def _update_humans_with_probs(humans):
+			"""
+			updates list of human objects with correct probabilities
+			discards any highly unlikely probabilities
+			param humans is list of human objects
+			updates and returns humans list
+			"""
 			if humans:
 				target = self.human_target
 				humans = self.get_depth_probs(humans, target)
@@ -141,6 +163,12 @@ class Follower:
 			return humans
 
 		def _get_our_human(humans):
+			"""
+			chooses our human from human list by picking human
+			with max prob
+			param humans is list of humans
+			returns single human object our_human
+			"""
 			if not humans:
 				return None
 			elif len(humans) == 1:
@@ -169,11 +197,11 @@ class Follower:
 		threshold defaults to 0
 		return list of Human objects
 		"""
-		# TODO test different threshold
 		return [human for human in humans if (human.img_probs * human.pos_probs) > threshold]
 
 	def max_probs(self, humans):
 		"""
+		maximizes probabilities by summing probs of each human
 		param humans is list of Human objects
 		weights image and position probabilities when potential match
 		returns maximum likelihood Human
@@ -213,6 +241,8 @@ class Follower:
 
 	def extract_humans(self, objects, rgb_image, depth_image):
 		"""
+		extracts human objects from yolo published data stream
+		if confidence above certain threshold
 		param human_objects is yolo object with class name 'people'
 		param rgb_image of entire camera view
 		param depth_image of entire camera depth view
@@ -229,8 +259,14 @@ class Follower:
 
 	def turn_human(self, human):
 		"""
+		simple turn human function which turns to face target human
+		moves base only
 		param human is Human object that is our_human target
 		publishes Twist message to turn towards human
+		linear.x is forward motion
+		angular.z is rotation motion
+		for more information on rotation see
+		http://wiki.ros.org/turtlesim/Tutorials/Rotating%20Left%20and%20Right 
 		"""
 		middle = 320
 		max_rotation = 0.7 #this is for turning velocity
@@ -245,11 +281,12 @@ class Follower:
 			threshold = 60
 		
 		if human.x > middle + threshold:
+			# rotate right from robot perspective
 			displacement_right = human.x - middle - threshold
 			rotation_amount = max_rotation * displacement_right/middle
-			# http://wiki.ros.org/turtlesim/Tutorials/Rotating%20Left%20and%20Right
 			twist.angular.z = -rotation_amount 
 		elif human.x < middle - threshold:
+			# rotate left
 			displacement_left = middle - threshold - human.x
 			rotation_amount = max_rotation * displacement_left/middle
 			twist.angular.z = rotation_amount
@@ -261,6 +298,9 @@ class Follower:
 		param human is Human object that is our_human target
 		publishes Twist message to turn base towards human
 		also publishes Twist message to turn head if human is at extreme threshold
+		updates turn_direction as pos, neg so that scan knows which way to turn if
+		target human leaves field of vision
+		see basic turn_human function for more information
 		"""
 		middle = 320
 		maximum_threshold = 640 # number of pixels in image
@@ -331,11 +371,12 @@ class Follower:
 
 	def scan_room(self, max_head_rotation=1.2):
 		"""
-		command used for scanning the room by twisting head
-		scans the room up to max_head_rotation
-		head turning only available on advanced setting
-		every frame over 15 where human is not detected will initiate
-		self.get_human voice command request human to return
+		Command used for scanning the room by twisting head.
+		If more then five frames seen without human
+		scans the room up to max_head_rotation 
+		head turning only available on advanced setting.
+		Every frame over 15 where human is not detected will initiate
+		self.get_human voice command request human to return.
 		"""
 		self.counter += 1
 		if self.counter > 15:
@@ -343,7 +384,8 @@ class Follower:
 			self.counter = 0
 
 		if self.advanced_head_turning_setting:
-			if abs(self.head_position) < max_head_rotation and (self.extreme or (self.human_target and self.counter > 5)):
+			if abs(self.head_position) < max_head_rotation and (
+					self.extreme or (self.human_target and self.counter > 5)):
 				if self.turn_direction == 'pos':
 					self.head_position += self.head_turn
 				else:
@@ -417,6 +459,19 @@ class Follower:
 
 	
 	def callback_main(self, data): 
+		"""
+		main function
+		if not depth or image started it will return
+		on initiation will call get_human()
+		if no humans found will call snan_room()
+		after fifth frame will start calling init_target
+		this gives robot time to 'warm up'
+		once human target found it will call find_human_target
+		if our target human is found it will turn to face human
+		additionally it will store target human in history
+		if history threshold has not been reached
+		otherwise if no target human is found it will call scan_room
+		"""
 		if not self.rec_depth or not self.rec_image:
 			return
 
@@ -424,7 +479,7 @@ class Follower:
 			self.counter += 1
 			self.get_human()
 
-		history_threshold = 10
+		
 		image = self.bgr_image 
 		depth = self.depth_image
 		objects = data.detections
@@ -445,7 +500,7 @@ class Follower:
 
 		if our_human:
 			self.counter = 0
-			if len(self.prev_targets) <= history_threshold:
+			if len(self.prev_targets) <= self.history_threshold:
 				self.prev_targets.append(our_human)
 			self.human_target = our_human
 			if self.advanced_head_turning_setting:
