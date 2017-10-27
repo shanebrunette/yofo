@@ -6,19 +6,22 @@ Human Following with the Human Service Robot
 
 Download the code into a catkin workspace as a new package. Run catkin make on the workspace (if there are errors you may need to alter the name on the CMakeLists and package.xml files). 
 
-This code contains two scripts in the src folder. 
+This code contains two scripts required for use in the src folder. 
+
+Place the robot in the correct following position by extending the base to full height and lowering the arm:
 
 ```
 python stand_tall.py
 ```
-Places the robot in the correct following position by extending the base to full height and lowering the arm
+
+Run the simple follower without head movement or face detection. This script takes two arguments. 
+* Argument 1 - Face Detection - 0 for off or 1 for on
+* Argument 2 - Head Movement - 0 for off or 1 for on 
 
 ```
 python yofo.py 0 0 
 ```
-Runs the simple follower without head movement or face detection. This script takes two arguments. 
-* Argument 1 - Face Detection - 0 for off or 1 for on
-* Argument 2 - Head Movement - 0 for off or 1 for on 
+
 
 Other files in this folder include:
 * human.py - a python script which details the human object used for following
