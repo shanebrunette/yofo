@@ -30,7 +30,7 @@ Other files in this folder include:
 
 ### Prerequisites
 
-This code runs using ROS Indigo, OpenCV 2.4 and YOLO v2. The topics listed in the code are designed to run on the Toyota Human Support Robot, and will need to be altered if another robot is used. 
+This code runs using ROS Indigo, Python 2.7.6, OpenCV 2.4 and YOLO v2. The topics listed in the code are designed to run on the Toyota Human Support Robot, and will need to be altered if another robot is used. 
 
 ### Installing and Setup
 

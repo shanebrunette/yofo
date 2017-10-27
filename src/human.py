@@ -1,3 +1,20 @@
+#!/usr/bin/env python
+
+"""
+Human class object called by yofo.
+Stores information about individual humans to be used when 
+deciding if human object is human targe.t
+Information includes
+x, y, h, w based on detections from yolo
+depth
+shirt rgb crop
+face rgb crop
+color histogram
+pos_probs probability that it is human target based on position
+img_probs probability that it is human target based on shirt color
+face_target boolean faces matches human target face
+"""
+
 from __future__ import division
 import uuid
 import cv2
