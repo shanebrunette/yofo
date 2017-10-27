@@ -50,9 +50,6 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate messages in the 'msg' folder
  add_message_files(
    FILES
-   Object.msg
-   Objects.msg
-   Detection.msg
    Detections.msg
 #   Message1.msg
 #   Message2.msg
