@@ -1,6 +1,6 @@
 # You Only Follow Once
 
-Human Following with the Human Service Robot
+Human Following with the Human Support Robot
 
 ## Getting Started
 
@@ -30,7 +30,7 @@ Other files in this folder include:
 
 ### Prerequisites
 
-This code runs using ROS Indigo, OpenCV 2.4 and YOLO v2. The topics listed in the code are designed to run on the Toyota Human Service Robot, and will need to be altered if another robot is used. 
+This code runs using ROS Indigo, OpenCV 2.4 and YOLO v2. The topics listed in the code are designed to run on the Toyota Human Support Robot, and will need to be altered if another robot is used. 
 
 ### Installing and Setup
 
@@ -44,7 +44,7 @@ Note: The VM provided by UNSW for COMP3431 already has ROS Indigo and OpenCV 2.4
 
 ## Demonstration 
 
-Videos of this code being demonstrated on the Toyota Human Service Robot can be found [here]() 
+Videos of this code being demonstrated on the Toyota Human Support Robot can be found [here]() 
 
 ## Authors
 
