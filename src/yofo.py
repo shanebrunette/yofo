@@ -1,6 +1,12 @@
 #!/usr/bin/env python
-# just some really basic code to get started following someone
-# just run this as an individual node using rosrun comp3431_project simple_follow.py
+
+"""
+Human Following Code for use with the Toyota Human Support Robot
+University of New South Wales
+@Shane Brunette 	shanebrunette@gmail.com 	 github:shanebrunette
+@Alison McCann  	alison.r.mccann@gmail.com 	 github:A-McCann
+Supervisor @Dr Claude Sammut
+"""
 
 from __future__ import division
 import rospy
@@ -23,49 +29,38 @@ import math
 from human import Human
 
 
-MID_POINT_THRESHOLD = 100 #update this with the actual threshold
-ROLO_CONFIDENCE_THRESHOLD = 0.7
 
-# HEAD_TOPIC = '/hsrb/head_trajectory_controller/command'
-HEAD_CAMERA_TF_TOPIC = "/head_rgbd_sensor_link"
-BODY_TF_TOPIC = "/base_link"
 
-RECOGNIZER = cv2.createLBPHFaceRecognizer(threshold=5.0)
-DETECTOR = cv2.CascadeClassifier("haarcascade_frontalface_default.xml");
-HEAD_TURN = 0.3
-FACE_DETECTION = int(sys.argv[1])
-ADV_HEAD_TURN = int(sys.argv[2])
-# TO DO
-# need to ensure that the camera is pointing straight ahead relative to the robot - have a look at the transforms for this
-#
-#
+
 
 class Follower:
-
 	def __init__(self):
+		"""
+		Before initialization start stand_tall to get robot in position.
+		Following object publishes twist message to base and head controllers
+		On initialization follows most centred human in field of vision 
+		and under within depth threshold.
+		Advanced setting rotates head when human is almost or out of field of vision
+		Face detection setting require human to be within 2-3 metres of robot vision
+		And standing at eye level on initialization of robot.
+		On initialization the robot will wait for ~5 frames before looking for human
+		Make sure your kill switch is handy!
+		"""
+		self.face_detection_setting = int(sys.argv[1])
+		self.advanced_head_turning_setting = int(sys.argv[2])
+
 		self.bridge = CvBridge()
-		
+		self.detector = cv2.CascadeClassifier("haarcascade_frontalface_default.xml");
+		self.recognizer = cv2.createLBPHFaceRecognizer(threshold=5.0)
+		self.head_turn = 0.3
+		self.rolo_confidence_threshold = 0.7
+
+		self.human_target = None
+		self.prev_targets = []
 		self.rec_depth = False
 		self.rec_image = False
-		# TODO 
-
-		self.pub_body_move = rospy.Publisher("/hsrb/command_velocity", Twist, queue_size=10)
-		self.pub_head_move = rospy.Publisher("hsrb/head_trajectory_controller/command", JointTrajectory, queue_size=10)
-
-		self.pub_voice = rospy.Publisher('talk_request', Voice, queue_size = 10)
-
 		self.bgr_image = np.zeros((480,640,3), np.uint8)
 		self.depth_image = np.zeros((480,640,1), np.uint8)
-
-		self.human_target = None # {obj, img, depth} # TODO add face data
-		self.prev_targets = []
-		self.tf_listener = tf.TransformListener()
-
-		self.sub_yolo = rospy.Subscriber("/yolo2_node/detections", Detections, self.callback_main)
-		self.sub_bgr_image = rospy.Subscriber("/hsrb/head_rgbd_sensor/rgb/image_rect_color", Image, self.callback_image, queue_size=1, buff_size=480*640*8)
-		self.sub_depth_image = rospy.Subscriber("/hsrb/head_rgbd_sensor/depth_registered/image_rect_raw", Image, self.callback_depth, queue_size=1, buff_size=480*640*8)
-		self.tf_head = rospy.Subscriber(HEAD_CAMERA_TF_TOPIC, JointTrajectoryControllerState)
-		self.tf_body = rospy.Subscriber(BODY_TF_TOPIC, JointTrajectoryControllerState)
 		self.head_position = 0
 		self.turn_right = False
 		self.counter = -1
@@ -73,6 +68,14 @@ class Follower:
 		self.turn_direction = None
 		self.head_position = 0
 
+		self.pub_body_move = rospy.Publisher("/hsrb/command_velocity", Twist, queue_size=10)
+		self.pub_head_move = rospy.Publisher("hsrb/head_trajectory_controller/command", JointTrajectory, queue_size=10)
+		self.pub_voice = rospy.Publisher('talk_request', Voice, queue_size = 10)
+
+		self.sub_yolo = rospy.Subscriber("/yolo2_node/detections", Detections, self.callback_main)
+		self.sub_bgr_image = rospy.Subscriber("/hsrb/head_rgbd_sensor/rgb/image_rect_color", Image, self.callback_image, queue_size=1, buff_size=480*640*8)
+		self.sub_depth_image = rospy.Subscriber("/hsrb/head_rgbd_sensor/depth_registered/image_rect_raw", Image, self.callback_depth, queue_size=1, buff_size=480*640*8)
+		
 
 	def init_target(self, humans, depth_threshold=3):
 		"""
@@ -84,8 +87,6 @@ class Follower:
 		"""
 		time.sleep(1)
 		middle = 320 # middle of frame of view
-		min_diff = 400 #the actual max value is 360 
-		# print([human.depth for human in humans])
 		potential_humans = [human for human in humans if human.depth < depth_threshold]
 		if not potential_humans:
 			self.human_target = None
@@ -93,10 +94,10 @@ class Follower:
 			distance_center = [abs(middle - human.x) for human in potential_humans]
 			min_index = distance_center.index(min(distance_center))
 			human_target = potential_humans[min_index]
-			if FACE_DETECTION:
+			if self.face_detection_setting:
 				target_face = self.train_face(human_target)
 				if not target_face:
-					return False # TODO show your face
+					return False 
 			self.human_target = human_target
 			self.found_human()
 		return self.human_target
@@ -107,12 +108,12 @@ class Follower:
 		if not face.any():
 			return False
 		img_numpy = np.array(face,'uint8')
-		faces = DETECTOR.detectMultiScale(img_numpy)
+		faces = self.detector.detectMultiScale(img_numpy)
 		if len(faces):
 			(x,y,w,h) = faces[0]
 			cropped_face = img_numpy[y:y+h,x:x+w]
-			RECOGNIZER.train([cropped_face], np.array([1]))
-			self.face_target = RECOGNIZER
+			self.recognizer.train([cropped_face], np.array([1]))
+			self.face_target = self.recognizer
 			if not self.face_target:
 				return False
 			return True
@@ -131,12 +132,11 @@ class Follower:
 
 		def _update_humans_with_probs(humans):
 			if humans:
-				target = self.human_target # will set self.human_target
+				target = self.human_target
 				humans = self.get_depth_probs(humans, target)
 				humans = self.get_img_probs(humans, target)
-				if FACE_DETECTION:
+				if self.face_detection_setting:
 					humans = self.get_face_matches(humans, self.face_target)
-				# print('depth, img probs', [(human.img_probs, human.pos_probs, human.face_target) for human in humans])
 				humans = self.discard_unlikely_probs(humans)
 			return humans
 
@@ -154,12 +154,19 @@ class Follower:
 		return our_human
 
 	def get_face_matches(self, humans, face_target):
+		"""
+		param humans list of Human objects
+		param face_target is trained fisherfaces model
+		checks each human against face model to see if face is recognized
+		returns humans list with update self.face_match
+		"""
 		return [human.check_face(face_target) for human in humans]
 
 	def discard_unlikely_probs(self, humans, threshold=0):
 		"""
-		param list of Human objects
+		param humans list of Human objects
 		discards any human where any prob <= threshold
+		threshold defaults to 0
 		return list of Human objects
 		"""
 		# TODO test different threshold
@@ -184,8 +191,6 @@ class Follower:
 		param humans is list of Human objects
 		param target is Human object to be matched against
 		Human.pos_probs is normalized against probability distribution
-		if any position probability is below threshold critera determined
-		by Human.get_position_prob it is set to 0
 		returns list of Human objects with updated position probability
 		"""
 		humans = [human.get_position_prob(target) for human in humans]
@@ -195,6 +200,11 @@ class Follower:
 
 
 	def get_img_probs(self, humans, target):
+		"""
+		gets color histogram probabilities based on shirt of human
+		param humans is list og Human objects
+		param target is Human object to be matched against
+		"""
 		humans = [human.get_image_prob(target, self.prev_targets) for human in humans]
 		total = sum([human.img_probs for human in humans])
 		humans = [human.normalize_img_prob(total) for human in humans]
@@ -213,7 +223,7 @@ class Follower:
 		human_objects = [
 						obj for obj in objects 
 						if obj.class_name == "person" 
-						and obj.confidence > ROLO_CONFIDENCE_THRESHOLD]
+						and obj.confidence > self.rolo_confidence_threshold]
 		return [Human(obj, rgb_image, depth_image) for obj in human_objects]
 
 
@@ -230,15 +240,15 @@ class Follower:
 
 		if human.depth > 1.5:
 			threshold = 30
-			twist.linear.x = min(max_forward, human_depth_weight * human.depth) #  TODO test if this works ok
+			twist.linear.x = min(max_forward, human_depth_weight * human.depth) 
 		else:
 			threshold = 60
 		
 		if human.x > middle + threshold:
-			# rotate left to correct
 			displacement_right = human.x - middle - threshold
 			rotation_amount = max_rotation * displacement_right/middle
-			twist.angular.z = -rotation_amount # http://wiki.ros.org/turtlesim/Tutorials/Rotating%20Left%20and%20Right
+			# http://wiki.ros.org/turtlesim/Tutorials/Rotating%20Left%20and%20Right
+			twist.angular.z = -rotation_amount 
 		elif human.x < middle - threshold:
 			displacement_left = middle - threshold - human.x
 			rotation_amount = max_rotation * displacement_left/middle
@@ -249,12 +259,13 @@ class Follower:
 	def adv_turn_human(self, human):
 		"""
 		param human is Human object that is our_human target
-		publishes Twist message to turn towards human
+		publishes Twist message to turn base towards human
+		also publishes Twist message to turn head if human is at extreme threshold
 		"""
 		middle = 320
 		maximum_threshold = 640 # number of pixels in image
-		body_threshold = 0.5 # this needs to be tested - how quickly it moves?
-		max_rotation = 0.5 #0.8 #this is for body turning velocity # TODO
+		body_threshold = 0.5
+		max_rotation = 0.5 # 0.8 this is for body turning velocity 
 		body_rotation = 0
 		target_pos = 0
 		extreme_threshold = 100
@@ -268,7 +279,7 @@ class Follower:
 		body_twist.angular.z = 0	
 		threshold = 30	
 		
-		if abs(self.head_position) <= (HEAD_TURN * 1.5):
+		if abs(self.head_position) <= (self.head_turn * 1.5):
 			if human.depth > 2:
 				body_twist.linear.x = min(0.8, 0.5 * human.depth) # TODO
 			else:
@@ -279,35 +290,30 @@ class Follower:
 		else:
 			self.turn_direction = 'neg'
 
-
-		if human.x > middle + threshold or self.head_position >= HEAD_TURN:
+		if human.x > middle + threshold or self.head_position >= self.head_turn:
 			# rotate right from robot perspective
 			angle_right = human.x - middle - threshold
 			body_rotation = -(max_rotation * angle_right/middle)
 
-		elif human.x < middle - threshold or self.head_position <= -HEAD_TURN:
+		elif human.x < middle - threshold or self.head_position <= -self.head_turn:
 			# rotate left
 			angle_left = middle - threshold - human.x
 			body_rotation = max_rotation * angle_left/middle
 
-
-		
 		if human.x < extreme_threshold:
 			body_rotation * 1.5
 			self.extreme = 'pos'
-			if self.head_position < abs(HEAD_TURN):
-				self.head_position = HEAD_TURN
+			if self.head_position < abs(self.head_turn):
+				self.head_position = self.head_turn
 		elif human.x >  maximum_threshold - extreme_threshold:
-			print('extreme')
 			body_rotation * 1.5
 			self.extreme = 'neg'
-			if self.head_position < abs(HEAD_TURN):
-				self.head_position = -HEAD_TURN
+			if self.head_position < abs(self.head_turn):
+				self.head_position = -self.head_turn
 		else:
 			self.head_position = self.head_position - (self.head_position / 4)
 			self.extreme = False
 
-		# TODO test more
 		if abs(self.head_position) >= 0.9:
 			body_rotation * 1.5
 		elif abs(self.head_position) >= 1.2:
@@ -323,43 +329,25 @@ class Follower:
 
 
 
-	def callback_image(self, data):
-		self.rec_image = True
-		try:
-			img = self.bridge.imgmsg_to_cv2(data, "bgr8")
-			self.bgr_image = img
-		except CvBridgeError as e:
-			print(e)
-
-	def found_human(self):
-		self.pub_voice.publish(False, False, 1, 'i see you, now following')
-
-
-	def following_human(self):
-		self.pub_voice.publish(False, False, 1, 'bleep!')
-
-	def get_human(self):
-		if self.human_target:
-			self.pub_voice.publish(False, False, 1, 'hey! come back here.')
-		else:
-			self.pub_voice.publish(False, False, 1, 'come stand infront of me')
-
-
-
-	def scan_room(self):
-		max_head_rotation = 1.2
-
+	def scan_room(self, max_head_rotation=1.2):
+		"""
+		command used for scanning the room by twisting head
+		scans the room up to max_head_rotation
+		head turning only available on advanced setting
+		every frame over 15 where human is not detected will initiate
+		self.get_human voice command request human to return
+		"""
 		self.counter += 1
 		if self.counter > 15:
 			self.get_human()
 			self.counter = 0
 
-		if ADV_HEAD_TURN:
+		if self.advanced_head_turning_setting:
 			if abs(self.head_position) < max_head_rotation and (self.extreme or (self.human_target and self.counter > 5)):
 				if self.turn_direction == 'pos':
-					self.head_position += HEAD_TURN
+					self.head_position += self.head_turn
 				else:
-					self.head_position -= HEAD_TURN
+					self.head_position -= self.head_turn
 			else:
 				if self.head_position > max_head_rotation:
 					self.turn_direction = 'neg'
@@ -370,6 +358,10 @@ class Follower:
 		
 
 	def twist_head(self, pos):
+		"""
+		twist head helper function to move head on x axis based on pos
+		publishes to head topic
+		"""
 		traj = JointTrajectory()
 		traj.joint_names = ["head_pan_joint", "head_tilt_joint"]
 		p = JointTrajectoryPoint()
@@ -380,6 +372,32 @@ class Follower:
 		self.pub_head_move.publish(traj)
 		return
 
+
+	def found_human(self):
+		"""
+		use when you have found the human
+		publishes to voice topic
+		"""
+		self.pub_voice.publish(False, False, 1, 'i see you, now following')
+
+	def following_human(self):
+		"""
+		used when you are following the human
+		publishes to voice topic
+		"""
+		self.pub_voice.publish(False, False, 1, 'bleep!')
+
+	def get_human(self):
+		"""
+		used on start if no human target or when human target is lost
+		publishes to voice topic
+		"""
+		if self.human_target:
+			self.pub_voice.publish(False, False, 1, 'hey! come back here.')
+		else:
+			self.pub_voice.publish(False, False, 1, 'come stand infront of me')
+
+
 	def callback_depth(self, data):
 		self.rec_depth = True
 		try:
@@ -387,6 +405,15 @@ class Follower:
 			self.depth_image = img
 		except CvBridgeError as e:
 			print(e)	
+
+
+	def callback_image(self, data):
+		self.rec_image = True
+		try:
+			img = self.bridge.imgmsg_to_cv2(data, "bgr8")
+			self.bgr_image = img
+		except CvBridgeError as e:
+			print(e)
 
 	
 	def callback_main(self, data): 
@@ -420,11 +447,11 @@ class Follower:
 			self.counter = 0
 			if len(self.prev_targets) <= history_threshold:
 				self.prev_targets.append(our_human)
-			self.human_target = our_human # update out human
-			if ADV_HEAD_TURN:
+			self.human_target = our_human
+			if self.advanced_head_turning_setting:
 				self.adv_turn_human(our_human)
 			else:
-				self.turn_human(our_human) # TODO uncomment to move
+				self.turn_human(our_human)
 		else:
 			self.scan_room()
 			return
@@ -433,29 +460,6 @@ class Follower:
 if __name__ == '__main__':
 	rospy.init_node('follower', anonymous=True)
 	follower = Follower()
-	print('starting')
 	while not rospy.is_shutdown():
 		rospy.spin()
 
-
-# class_id: 0
-# class_name: person
-# confidence: 0.492961704731
-# x: 380.4921875
-# y: 318.443206787
-# height: 152
-# width: 53
-# class_id: 0
-# class_name: person
-# confidence: 0.761228561401
-# x: 85.8810501099
-# y: 259.162200928
-# height: 504
-# width: 175
-# class_id: 0
-# class_name: person
-# confidence: 0.876062333584
-# x: 324.470458984
-# y: 267.020233154
-# height: 470
-# width: 150
