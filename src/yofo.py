@@ -18,7 +18,7 @@ from geometry_msgs.msg import Twist
 from trajectory_msgs.msg import JointTrajectory
 from trajectory_msgs.msg import JointTrajectoryPoint
 from control_msgs.msg import JointTrajectoryControllerState
-from myvis.msg import Detections
+from yofo.msg import Detections
 from tmc_msgs.msg import Voice
 from cv_bridge import CvBridge, CvBridgeError
 import numpy as np
