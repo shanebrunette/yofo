@@ -44,7 +44,7 @@ Note: The VM provided by UNSW for COMP3431 already has ROS Indigo and OpenCV 2.4
 
 ## Demonstration 
 
-Videos of this code being demonstrated on the Toyota Human Support Robot can be found [here]() 
+Videos of this code being demonstrated on the Toyota Human Support Robot can be found [here](https://youtu.be/AZw5d_0etys) 
 
 ## Authors
 
