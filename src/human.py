@@ -58,10 +58,10 @@ class Human:
 
 	def get_head(self, rgb_image):
 		"""
+		gets estimated head location of image
 		x, y are center of image
 		h, w refer to bounding box
 		param rgb_image is rgb image
-		gets estimated head location of imaage
 		returns cropped image
 		"""
 		x, y, h, w = self.x, self.y, self.h, self.w
@@ -98,6 +98,7 @@ class Human:
 
 	def get_shirt(self, rgb_image):
 		"""
+		gets cropped shirt ROI
 		x, y are center of image
 		h, w refer to bounding box
 		"""
